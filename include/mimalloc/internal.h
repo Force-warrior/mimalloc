@@ -166,6 +166,15 @@ bool          _mi_allocator_init(const char** message);
 void          _mi_allocator_done(void);
 bool          _mi_is_main_thread(void);
 bool          _mi_preloading(void);           // true while the C runtime is not initialized yet
+#ifdef __cplusplus
+extern "C" {
+#endif
+// alloc-trace: only when user finished Init() — do not use TraceAllocStack from mi_malloc before that
+void          _mi_trace_on_malloc(size_t size, void* addr);
+void          _mi_trace_on_free(void* addr);
+#ifdef __cplusplus
+}
+#endif
 void          _mi_thread_done(mi_theap_t* theap);
 
 mi_subproc_t* _mi_subproc(void);

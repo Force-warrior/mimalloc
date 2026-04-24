@@ -29,10 +29,13 @@ we therefore test the API over various inputs. Please add more tests :-)
 #include <errno.h>
 
 #ifdef __cplusplus
+#include <chrono>
+#include <thread>
 #include <vector>
 #endif
 
 #include "mimalloc.h"
+#include "mimalloc/alloc-trace.h"
 // #include "mimalloc/internal.h"
 #include "mimalloc/types.h" // for MI_DEBUG and MI_PAGE_MAX_OVERALLOC_ALIGN
 
@@ -64,7 +67,27 @@ bool mem_is_zero(uint8_t* p, size_t size) {
 // ---------------------------------------------------------------------------
 // Main testing
 // ---------------------------------------------------------------------------
+static constexpr size_t kBacktraceIfAllocLargerThanBytes_ = 11u * 1024u * 1024u;
 int main(void) {
+  (void)mi_version();
+
+  std::string cache_path = "/Users/zhangguangming/trace_stack";
+  TraceAllocStack::GetInstance()->Init(cache_path.c_str());
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+  auto* ptr = (void*) malloc(1024 * 1024);
+  if(ptr == nullptr){
+    return false;
+  }
+
+  auto* ptr2 = (void*) malloc(kBacktraceIfAllocLargerThanBytes_);
+  if(ptr2 == nullptr){
+    return false;
+  }
+  // free(ptr);
+  TraceAllocStack::GetInstance()->UnInit();
+  return -1;
+
   mi_option_disable(mi_option_verbose);
 
   CHECK_BODY("malloc-aligned9a") { // test large alignments

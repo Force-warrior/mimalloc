@@ -178,6 +178,9 @@ static inline mi_page_t* mi_validate_ptr_page(const void* p, const char* msg)
 // Fast path written carefully to prevent register spilling on the stack
 static mi_decl_forceinline void mi_free_ex(void* p, size_t* usable, mi_page_t* page)  
 {
+  if (p != NULL && page != NULL) {
+    _mi_trace_on_free(p);
+  }
   if mi_unlikely(page==NULL) return;  // page will be NULL if p==NULL
   mi_assert_internal(p!=NULL && page!=NULL);
   if (usable!=NULL) { *usable = mi_page_usable_block_size(page); }

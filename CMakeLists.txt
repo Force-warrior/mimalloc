@@ -11,6 +11,7 @@ option(MI_XMALLOC           "Enable abort() call on memory allocation failure by
 option(MI_SHOW_ERRORS       "Show error and warning messages by default (only enabled by default in DEBUG mode)" OFF)
 option(MI_GUARDED           "Build with guard pages behind certain object allocations (enabled by default in a debug build)" OFF)
 option(MI_USE_CXX           "Use the C++ compiler to compile the library (instead of the C compiler)" OFF)
+option(MI_ENABLE_CXX        "Enable C++ toolchain: allows adding .cpp files to the build (e.g. libstdc++/libc++), without recompiling all .c as C++ (see MI_USE_CXX). OFF by default: pure C project." OFF)
 option(MI_OPT_ARCH          "Only for optimized builds: turn on architecture specific optimizations (for x64: '-march=haswell;-mavx2' (2013), for arm64: '-march=armv8.1-a' (2016))" OFF)
 option(MI_OPT_SIMD          "Use SIMD instructions (requires MI_OPT_ARCH to be enabled)" OFF)
 
@@ -64,6 +65,7 @@ include("cmake/mimalloc-config-version.cmake")
 
 set(mi_sources
     src/alloc.c
+    src/alloc-trace.cpp
     src/alloc-aligned.c
     src/alloc-posix.c
     src/arena.c
@@ -157,6 +159,7 @@ message(STATUS "Architecture: ${MI_ARCH}") # (${CMAKE_SYSTEM_PROCESSOR}, ${CMAKE
 # negative overrides (mainly to support vcpkg features)
 if(MI_NO_USE_CXX)
   set(MI_USE_CXX "OFF")
+  set(MI_ENABLE_CXX "OFF")
 endif()
 
 if(MI_NO_OPT_ARCH)
@@ -182,12 +185,21 @@ elseif(MI_DEBUG_UBSAN AND CMAKE_BUILD_TYPE MATCHES "Debug")  # ubsan needs C++
 endif()
 
 # enable C++ ?
+# - MI_USE_CXX: compile every .c with the C++ compiler (entire tree as C++-compiled).
+# - MI_ENABLE_CXX: add C++ to the project so you can list .cpp in mi_sources (mixed C + C++).
 if(MI_USE_CXX)
   enable_language(CXX)
   message(STATUS "Use the C++ compiler to compile (MI_USE_CXX=ON)")
   if(CMAKE_CXX_COMPILER_ID MATCHES "Intel" AND NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
     list(APPEND mi_cflags -Kc++)
   endif()
+elseif(MI_ENABLE_CXX)
+  enable_language(CXX)
+  message(STATUS "C++ language enabled (MI_ENABLE_CXX=ON): e.g. add a .cpp to mi_sources to use the C++ standard library; .c files stay as C")
+elseif("src/alloc-trace.cpp" IN_LIST mi_sources)
+  # alloc-trace.cpp is C++ and links libc++; enable even if MI_ENABLE_CXX and MI_USE_CXX are OFF
+  enable_language(CXX)
+  message(STATUS "C++ language enabled: src/alloc-trace.cpp (mixed C/C++ library)")
 endif()
 
 
@@ -636,6 +648,9 @@ message(STATUS "Version          : ${mi_version}.${mi_version_patch}")
 message(STATUS "Build type       : ${CMAKE_BUILD_TYPE_LC}")
 if(MI_USE_CXX)
   message(STATUS "C++ Compiler     : ${CMAKE_CXX_COMPILER}")
+elseif(MI_ENABLE_CXX)
+  message(STATUS "C Compiler       : ${CMAKE_C_COMPILER}")
+  message(STATUS "C++ (mixed)     : ${CMAKE_CXX_COMPILER} (MI_ENABLE_CXX=ON)")
 else()
   message(STATUS "C Compiler       : ${CMAKE_C_COMPILER}")
 endif()
@@ -654,6 +669,10 @@ if(MI_BUILD_SHARED)
   add_library(mimalloc SHARED ${mi_sources})
   set_target_properties(mimalloc PROPERTIES VERSION ${mi_version} SOVERSION ${mi_version_major} OUTPUT_NAME ${mi_libname} )
   target_compile_definitions(mimalloc PRIVATE ${mi_defines} MI_SHARED_LIB MI_SHARED_LIB_EXPORT)
+  if(MI_USE_CXX)
+    # alloc-trace.cpp must match _mi_preloading linkage (C++-mangled when .c are compiled as CXX)
+    target_compile_definitions(mimalloc PRIVATE MI_MIMALLOC_C_SOURCES_AS_CXX=1)
+  endif()
   target_compile_options(mimalloc PRIVATE ${mi_cflags} ${mi_cflags_dynamic})
   target_link_libraries(mimalloc PRIVATE ${mi_libraries})
   target_include_directories(mimalloc PUBLIC
@@ -706,6 +725,9 @@ if (MI_BUILD_STATIC)
   set_property(TARGET mimalloc-static PROPERTY OUTPUT_NAME ${mi_libname})
   set_property(TARGET mimalloc-static PROPERTY POSITION_INDEPENDENT_CODE ON)
   target_compile_definitions(mimalloc-static PRIVATE ${mi_defines} MI_STATIC_LIB)
+  if(MI_USE_CXX)
+    target_compile_definitions(mimalloc-static PRIVATE MI_MIMALLOC_C_SOURCES_AS_CXX=1)
+  endif()
   target_compile_options(mimalloc-static PRIVATE ${mi_cflags} ${mi_cflags_static})
   target_link_libraries(mimalloc-static PRIVATE ${mi_libraries})
   target_include_directories(mimalloc-static PUBLIC
@@ -730,6 +752,9 @@ if (MI_BUILD_OBJECT)
   add_library(mimalloc-obj OBJECT src/static.c)
   set_property(TARGET mimalloc-obj PROPERTY POSITION_INDEPENDENT_CODE ON)
   target_compile_definitions(mimalloc-obj PRIVATE ${mi_defines})
+  if(MI_USE_CXX)
+    target_compile_definitions(mimalloc-obj PRIVATE MI_MIMALLOC_C_SOURCES_AS_CXX=1)
+  endif()
   target_compile_options(mimalloc-obj PRIVATE ${mi_cflags} ${mi_cflags_static})
   target_include_directories(mimalloc-obj PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

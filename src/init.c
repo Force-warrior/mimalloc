@@ -1186,3 +1186,13 @@ void mi_cdecl _mi_auto_process_done(void) mi_attr_noexcept {
   if (_mi_option_get_fast(mi_option_destroy_on_exit)>1) return;
   mi_process_done();
 }
+
+// Default no-op for alloc stack tracing; `alloc-trace.cpp` overrides with a
+// strong `extern "C" _mi_trace_on_malloc` / `_mi_trace_on_free` when linked (weak omitted on MSVC).
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(_WIN32)
+__attribute__((weak)) void _mi_trace_on_malloc(size_t size, void* addr) { (void)size; (void)addr; }
+__attribute__((weak)) void _mi_trace_on_free(void* addr) { (void)addr; }
+#elif !defined(_WIN32)
+void _mi_trace_on_malloc(size_t size, void* addr) { (void)size; (void)addr; }
+void _mi_trace_on_free(void* addr) { (void)addr; }
+#endif

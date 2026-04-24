@@ -13,7 +13,6 @@ terms of the MIT license. A copy of the license can be found in the file
 #include "mimalloc/internal.h"
 #include "mimalloc/atomic.h"
 #include "mimalloc/prim.h"   // _mi_prim_thread_id()
-
 #include <string.h>      // memset, strlen (for mi_strdup)
 #include <stdlib.h>      // malloc, abort
 
@@ -248,11 +247,15 @@ void* _mi_theap_malloc_zero(mi_theap_t* theap, size_t size, bool zero, size_t* u
 // Main allocation functions
 
 mi_decl_nodiscard extern inline mi_decl_restrict void* mi_theap_malloc(mi_theap_t* theap, size_t size) mi_attr_noexcept {
-  return _mi_theap_malloc_zero(theap, size, false, NULL);
+  void* addr = _mi_theap_malloc_zero(theap, size, false, NULL);
+  if(addr != bullptr){
+    _mi_trace_on_malloc(size, addr);
+  }
+  return addr;
 }
 
-mi_decl_nodiscard mi_decl_restrict void* mi_malloc(size_t size) mi_attr_noexcept {
-   return mi_theap_malloc(_mi_theap_default(), size);
+mi_decl_nodiscard mi_decl_restrict void* mi_malloc(size_t size) mi_attr_noexcept { 
+  return mi_theap_malloc(_mi_theap_default(), size);
 }
 
 mi_decl_nodiscard mi_decl_restrict void* mi_heap_malloc(mi_heap_t* heap, size_t size) mi_attr_noexcept {
