@@ -1,5 +1,5 @@
 //
-// Created by 张光明 on 2026/4/22.
+// Created on 2026/4/22.
 //
 // Hot path (TraceStack/TraceFree): only backtrace + POD record + map update.
 // dladdr / __cxa_demangle / I/O only in FinishFlush (tracing disabled).
@@ -12,10 +12,15 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
-#include <thread>
+#if defined(_WIN32)
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#else
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <cxxabi.h>
+#endif
 
 #if defined(MI_MIMALLOC_C_SOURCES_AS_CXX)
 bool _mi_preloading(void);
@@ -79,6 +84,39 @@ static void line_append(char* line, size_t line_size, const char* piece) {
   }
 }
 
+static bool should_skip_frame_name(const char* name) {
+    if (!name) {
+        return false;
+    }
+    return (strstr(name, "_mi_trace_on") != NULL || strstr(name, "TraceStack") != NULL ||
+            strstr(name, "TraceFree") != NULL || strstr(name, "backtrace") != NULL);
+}
+
+#if defined(_WIN32)
+static void init_symbols() {
+    static bool inited = false;
+    if (!inited) {
+        SymInitialize(GetCurrentProcess(), NULL, TRUE);
+        SymSetOptions(SYMOPT_UNDNAME);
+        inited = true;
+    }
+}
+
+static void demangle_to_buffer(const char* name, char* out, size_t out_size) {
+    if (!out || out_size == 0) return;
+
+    if (!name || name[0] == '\0') {
+        snprintf(out, out_size, "?");
+        return;
+    }
+
+    if (UnDecorateSymbolName(name, out, (DWORD)out_size, UNDNAME_COMPLETE)) {
+        return;
+    }
+    snprintf(out, out_size, "%s", name);
+}
+
+#else
 static void demangle_to_buffer(const char* name, char* out, size_t out_size) {
   if (!out || out_size == 0) {
     return;
@@ -103,24 +141,39 @@ static void demangle_to_buffer(const char* name, char* out, size_t out_size) {
   }
   (void)snprintf(out, out_size, "%s", name);
 }
-
-static bool should_skip_frame_name(const char* name) {
-  if (!name) {
-    return false;
-  }
-  return (strstr(name, "_mi_trace_on") != NULL || strstr(name, "TraceStack") != NULL ||
-          strstr(name, "TraceFree") != NULL || strstr(name, "backtrace") != NULL);
-}
+#endif
 
 void TraceAllocStack::format_record_to_line(const Record& rec, char* line, size_t line_size) {
   line[0] = '\0';
   if (line_size < 2 || rec.nframes <= 0) {
     return;
   }
+#if defined(_WIN32)
+  init_symbols();
+#endif
+
   char show[256];
   char hex[32];
   for (int i = rec.nframes - 1; i >= 0; i--) {
     const void* frame = rec.frames[i];
+#if defined(_WIN32)
+    HANDLE process = GetCurrentProcess();
+
+    char buffer[sizeof(SYMBOL_INFO) + 256];
+    auto symbol = (PSYMBOL_INFO)buffer;
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol->MaxNameLen = 255;
+
+    DWORD64 displacement = 0;
+
+    if (SymFromAddr(process, (DWORD64)frame, &displacement, symbol)) {
+        demangle_to_buffer(symbol->Name, show, sizeof(show));
+        if (should_skip_frame_name(show)) {
+            continue;
+        }
+        line_append(line, line_size, show);
+    }
+#else
     Dl_info info;
     if (dladdr(frame, &info) && info.dli_sname != NULL && info.dli_sname[0] != '\0') {
       if (should_skip_frame_name(info.dli_sname)) {
@@ -128,9 +181,11 @@ void TraceAllocStack::format_record_to_line(const Record& rec, char* line, size_
       }
       demangle_to_buffer(info.dli_sname, show, sizeof(show));
       line_append(line, line_size, show);
-    } else {
-      (void)snprintf(hex, sizeof(hex), "%p", frame);
-      line_append(line, line_size, hex);
+    }
+#endif
+    else {
+        (void)snprintf(hex, sizeof(hex), "%p", frame);
+        line_append(line, line_size, hex);
     }
   }
 }
@@ -172,17 +227,23 @@ void TraceAllocStack::TraceStack(size_t alloc_bytes, void* addr) {
     return;
   }
 
-  void* buf[kMaxStackFrames_];
-  const int n = backtrace(buf, kMaxStackFrames_);
+  void* stack[kMaxStackFrames_];
+#if defined(_WIN32)
+    const auto n = CaptureStackBackTrace(0, (ULONG)(kMaxStackFrames_), stack, nullptr);
+#else
+    const auto n = backtrace(buf, kMaxStackFrames_);
+#endif
+  if (n <= kBacktraceSkip_) {
+    return;
+  }
+
   Record rec;
   rec.alloc_size = alloc_bytes;
   rec.nframes = 0;
-  if (n > kBacktraceSkip_) {
-    const int avail = n - kBacktraceSkip_;
-    for (int i = 0; i < avail && i < kMaxStackFrames_; i++) {
-      rec.frames[i] = buf[kBacktraceSkip_ + i];
-      rec.nframes++;
-    }
+  const int avail = n - kBacktraceSkip_;
+  for (int i = 0; i < avail && i < kMaxStackFrames_; i++) {
+    rec.frames[i] = stack[kBacktraceSkip_ + i];
+    rec.nframes++;
   }
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -225,6 +286,7 @@ int TraceAllocStack::FinishFlush() {
   if (!outputFile) {
     return -4;
   }
+
   char line[1024];
   for (const auto& e : data) {
     const void* addr = e.first;

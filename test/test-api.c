@@ -70,10 +70,13 @@ bool mem_is_zero(uint8_t* p, size_t size) {
 static constexpr size_t kBacktraceIfAllocLargerThanBytes_ = 11u * 1024u * 1024u;
 int main(void) {
   (void)mi_version();
-
+#if defined(_WIN32)
+  std::string cache_path = "D:/trace_stack";
+#else
   std::string cache_path = "/Users/zhangguangming/trace_stack";
+#endif
   TraceAllocStack::GetInstance()->Init(cache_path.c_str());
-  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+//  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
   auto* ptr = (void*) malloc(1024 * 1024);
   if(ptr == nullptr){

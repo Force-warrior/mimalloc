@@ -248,7 +248,7 @@ void* _mi_theap_malloc_zero(mi_theap_t* theap, size_t size, bool zero, size_t* u
 
 mi_decl_nodiscard extern inline mi_decl_restrict void* mi_theap_malloc(mi_theap_t* theap, size_t size) mi_attr_noexcept {
   void* addr = _mi_theap_malloc_zero(theap, size, false, NULL);
-  if(addr != bullptr){
+  if(addr != nullptr){
     _mi_trace_on_malloc(size, addr);
   }
   return addr;

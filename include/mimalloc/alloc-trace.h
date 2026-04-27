@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by 张光明 on 2026/4/22.
 //
 // For MI_SHARED_LIB: TraceAllocStack must be exported like mi_malloc, or
@@ -22,14 +22,14 @@
 // Hot path: raw PCs only; symbol resolution runs off hot path (FinishFlush).
 class mi_decl_export TraceAllocStack {
  public:
-  mi_decl_export static TraceAllocStack* GetInstance();
-  mi_decl_export ~TraceAllocStack();
+  static TraceAllocStack* GetInstance();
+  ~TraceAllocStack();
   bool isInit() { return running_.load(std::memory_order_acquire); }
-  mi_decl_export void Init(const char* cache_path);
-  mi_decl_export int UnInit();
-  mi_decl_export size_t GetNoFreeRecordSize();
-  mi_decl_export void TraceStack(size_t alloc_bytes, void* addr);
-  mi_decl_export void TraceFree(void* addr);
+  void Init(const char* cache_path);
+  int UnInit();
+  size_t GetNoFreeRecordSize();
+  void TraceStack(size_t alloc_bytes, void* addr);
+  void TraceFree(void* addr);
 
  private:
   static constexpr size_t kBacktraceIfAllocLargerThanBytes_ = 1024u * 1024u;
